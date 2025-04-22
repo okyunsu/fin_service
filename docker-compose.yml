@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  fin:
+    container_name: fin_service
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - db
+    restart: always
+
+  db:
+    container_name: fin_service_db
+    image: postgres:15
+    ports:
+      - "5434:5434"
+    env_file:
+      - .env
+    volumes:
+      - fin_service_postgres_data:/var/lib/postgresql/data
+    restart: always
+
+volumes:
+  fin_service_postgres_data: 
