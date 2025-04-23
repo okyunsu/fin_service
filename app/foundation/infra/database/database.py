@@ -3,6 +3,9 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 import os
 from dotenv import load_dotenv
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 환경 변수 로드
 env = os.getenv("APP_ENV", "development")
@@ -14,9 +17,23 @@ else:
 
 # 데이터베이스 URL 설정
 DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is not set")
+
+# 호스트 이름을 fin_db로 수정
+if "db:5432" in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("db:5432", "fin_db:5432")
+
+logger.info(f"Connecting to database with URL: {DATABASE_URL}")
 
 # 비동기 엔진 생성
-engine = create_async_engine(DATABASE_URL, echo=True)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=True,
+    pool_pre_ping=True,  # 연결 상태 확인
+    pool_size=5,  # 연결 풀 크기
+    max_overflow=10  # 최대 추가 연결 수
+)
 
 # 비동기 세션 팩토리 생성
 async_session = sessionmaker(
@@ -40,8 +57,19 @@ async def get_db_session() -> AsyncSession:
 
 async def init_db():
     """데이터베이스 초기화 함수"""
-    async with engine.begin() as conn:
-        # 기존 테이블 삭제
-        await conn.run_sync(Base.metadata.drop_all)
-        # 테이블 생성
-        await conn.run_sync(Base.metadata.create_all) 
+    try:
+        async with engine.begin() as conn:
+            if env == "development":
+                # 개발 환경에서만 테이블 재생성
+                logger.info("Dropping existing tables...")
+                await conn.run_sync(Base.metadata.drop_all)
+                logger.info("Creating new tables...")
+                await conn.run_sync(Base.metadata.create_all)
+            else:
+                # 프로덕션 환경에서는 테이블 생성만
+                logger.info("Creating tables if they don't exist...")
+                await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database initialization completed successfully")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {str(e)}")
+        raise 

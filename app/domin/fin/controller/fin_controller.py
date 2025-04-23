@@ -4,6 +4,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 import logging
 from typing import Optional
+from decimal import Decimal
+
+from app.domin.fin.models.schemas import (
+    FinancialMetricsResponse,
+    FinancialMetrics,
+    GrowthData,
+    DebtLiquidityData
+)
 
 # 로깅 설정
 logging.basicConfig(
@@ -31,16 +39,128 @@ class FinController:
         """
         logger.info(f"재무제표 조회 요청 - 회사: {company_name}, 연도: {year}")
         try:
-            data = await self.service.fetch_and_save_financial_data(
+            raw_data = await self.service.fetch_and_save_financial_data(
                 company_name=company_name,
                 year=year
             )
+            
+            if raw_data["status"] != "success":
+                return FinancialMetricsResponse(
+                    companyName=company_name,
+                    financialMetrics=FinancialMetrics(
+                        operatingMargin=[],
+                        netMargin=[],
+                        roe=[],
+                        roa=[],
+                        years=[]
+                    ),
+                    growthData=GrowthData(
+                        revenueGrowth=[],
+                        netIncomeGrowth=[],
+                        years=[]
+                    ),
+                    debtLiquidityData=DebtLiquidityData(
+                        debtRatio=[],
+                        currentRatio=[],
+                        years=[]
+                    )
+                )
+            
+            # 재무제표 데이터에서 필요한 정보 추출
+            financial_data = raw_data["data"]
+            years = []
+            operating_margins = []
+            net_margins = []
+            roe_values = []
+            roa_values = []
+            revenue_growths = []
+            net_income_growths = []
+            debt_ratios = []
+            current_ratios = []
+            
+            # 먼저 모든 필요한 데이터를 추출
+            financial_values = {}
+            for data in financial_data:
+                if data["account_nm"] in ["매출액", "영업이익", "당기순이익", "자산총계", "자본총계", "부채총계", "유동자산", "유동부채"]:
+                    financial_values[data["account_nm"]] = {
+                        "current": float(data["thstrm_amount"]),
+                        "previous": float(data["frmtrm_amount"]),
+                        "year": data["bsns_year"]
+                    }
+                    if data["account_nm"] == "자산총계":
+                        years.append(data["bsns_year"])
+            
+            # 모든 데이터가 있는 경우에만 계산
+            if all(key in financial_values for key in ["매출액", "영업이익", "당기순이익", "자산총계", "자본총계", "부채총계", "유동자산", "유동부채"]):
+                # 매출액 관련 계산
+                revenue = financial_values["매출액"]["current"]
+                prev_revenue = financial_values["매출액"]["previous"]
+                if prev_revenue != 0:
+                    revenue_growth = ((revenue - prev_revenue) / abs(prev_revenue)) * 100
+                    revenue_growths.append(revenue_growth)
+                
+                # 영업이익률 계산
+                operating_profit = financial_values["영업이익"]["current"]
+                if revenue != 0:
+                    operating_margin = (operating_profit / revenue) * 100
+                    operating_margins.append(operating_margin)
+                
+                # 순이익 관련 계산
+                net_income = financial_values["당기순이익"]["current"]
+                prev_net_income = financial_values["당기순이익"]["previous"]
+                if revenue != 0:
+                    net_margin = (net_income / revenue) * 100
+                    net_margins.append(net_margin)
+                if prev_net_income != 0:
+                    net_income_growth = ((net_income - prev_net_income) / abs(prev_net_income)) * 100
+                    net_income_growths.append(net_income_growth)
+                
+                # ROA 계산
+                total_assets = financial_values["자산총계"]["current"]
+                if total_assets != 0:
+                    roa = (net_income / total_assets) * 100
+                    roa_values.append(roa)
+                
+                # ROE 계산
+                total_equity = financial_values["자본총계"]["current"]
+                if total_equity != 0:
+                    roe = (net_income / total_equity) * 100
+                    roe_values.append(roe)
+                
+                # 부채비율 계산
+                total_liabilities = financial_values["부채총계"]["current"]
+                if total_equity != 0:
+                    debt_ratio = (total_liabilities / total_equity) * 100
+                    debt_ratios.append(debt_ratio)
+                
+                # 유동비율 계산
+                current_assets = financial_values["유동자산"]["current"]
+                current_liabilities = financial_values["유동부채"]["current"]
+                if current_liabilities != 0:
+                    current_ratio = (current_assets / current_liabilities) * 100
+                    current_ratios.append(current_ratio)
+            
             logger.info(f"재무제표 조회 성공 - 회사: {company_name}, 연도: {year}")
-            return {
-                "status": "success", 
-                "message": "재무정보가 성공적으로 조회되었습니다.",
-                "data": data
-            }
+            return FinancialMetricsResponse(
+                companyName=company_name,
+                financialMetrics=FinancialMetrics(
+                    operatingMargin=operating_margins,
+                    netMargin=net_margins,
+                    roe=roe_values,
+                    roa=roa_values,
+                    years=years
+                ),
+                growthData=GrowthData(
+                    revenueGrowth=revenue_growths,
+                    netIncomeGrowth=net_income_growths,
+                    years=years
+                ),
+                debtLiquidityData=DebtLiquidityData(
+                    debtRatio=debt_ratios,
+                    currentRatio=current_ratios,
+                    years=years
+                )
+            )
         except ValueError as e:
             # 회사명 관련 오류
             error_message = str(e)

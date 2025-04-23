@@ -30,7 +30,7 @@ async def get_financial(
     controller = FinController(db)
     return await controller.get_financial(year=year)
 
-@router.post("/financial", summary="회사명으로 재무제표 조회")
+@router.post("/financial", summary="회사명으로 재무제표 조회", response_model=FinancialMetricsResponse)
 async def get_financial_by_name(
     payload: CompanyNameRequest,
     year: Optional[int] = Query(None, description="조회할 연도. 지정하지 않으면 직전 연도의 데이터를 조회"),

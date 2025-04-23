@@ -5,7 +5,7 @@ services:
     container_name: fin_service
     build: .
     ports:
-      - "8000:8000"
+      - "9000:9000"
     volumes:
       - .:/app
     env_file:
@@ -13,19 +13,33 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     depends_on:
-      - db
+      fin_db:
+        condition: service_healthy
+    networks:
+      - fin_network
     restart: always
 
-  db:
+  fin_db:
     container_name: fin_service_db
     image: postgres:15
     ports:
-      - "5434:5434"
+      - "5432:5432"
     env_file:
       - .env
     volumes:
-      - fin_service_postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fin_network
     restart: always
 
+networks:
+  fin_network:
+    driver: bridge
+
 volumes:
-  fin_service_postgres_data: 
+  postgres_data: 
